@@ -1,0 +1,508 @@
+openapi: 3.0.3
+info:
+  title: 後台管理系統 API
+  description: 提供客戶投資狀況查看與退休金試算功能的後台管理系統 API
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: /api
+    description: Next.js API Routes
+
+tags:
+  - name: Authentication
+    description: 第三方登入相關 API（由 NextAuth.js 處理）
+  - name: Customers
+    description: 客戶資料相關 API
+  - name: Retirement
+    description: 退休金試算相關 API
+  - name: Export
+    description: 資料匯出相關 API
+
+paths:
+  # Authentication (NextAuth.js handles these, documented for reference)
+  /auth/signin:
+    get:
+      tags:
+        - Authentication
+      summary: 第三方登入入口
+      description: 由 NextAuth.js 處理，支援 LINE 與 Google 登入
+      responses:
+        '302':
+          description: 導向第三方授權頁面
+        '500':
+          description: 伺服器錯誤
+
+  /auth/callback/{provider}:
+    get:
+      tags:
+        - Authentication
+      summary: 第三方登入回調
+      description: 處理第三方登入授權回調
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [line, google]
+      responses:
+        '302':
+          description: 登入成功，導向後台主頁
+        '401':
+          description: 登入失敗
+        '500':
+          description: 伺服器錯誤
+
+  /auth/signout:
+    post:
+      tags:
+        - Authentication
+      summary: 登出
+      description: 清除登入工作階段
+      responses:
+        '200':
+          description: 登出成功
+        '500':
+          description: 伺服器錯誤
+
+  # Customers
+  /customers:
+    get:
+      tags:
+        - Customers
+      summary: 取得客戶列表
+      description: 取得所有客戶的列表，支援搜尋與分頁
+      security:
+        - NextAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: 搜尋關鍵字（客戶姓名或編號）
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: 頁碼（從 1 開始）
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: limit
+          in: query
+          description: 每頁筆數
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: 成功取得客戶列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /customers/{id}:
+    get:
+      tags:
+        - Customers
+      summary: 取得客戶詳情
+      description: 取得特定客戶的詳細資訊，包含投資組合與投資記錄
+      security:
+        - NextAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 客戶 ID (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          description: 投資記錄開始日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: 投資記錄結束日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 成功取得客戶詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Retirement Calculation
+  /retirement/calculate:
+    post:
+      tags:
+        - Retirement
+      summary: 執行退休金試算
+      description: 根據輸入參數計算預估退休金金額
+      security:
+        - NextAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetirementCalculationRequest'
+      responses:
+        '200':
+          description: 試算成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetirementCalculationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /retirement/calculate/{id}:
+    get:
+      tags:
+        - Retirement
+      summary: 取得試算記錄
+      description: 取得特定試算記錄的詳情
+      security:
+        - NextAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 試算記錄 ID (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 成功取得試算記錄
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetirementCalculationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Export
+  /customers/{id}/export:
+    get:
+      tags:
+        - Export
+      summary: 匯出客戶投資資料
+      description: 匯出特定客戶的投資資料為 CSV 或 PDF
+      security:
+        - NextAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 客戶 ID (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          required: true
+          description: 匯出格式
+          schema:
+            type: string
+            enum: [csv, pdf]
+        - name: startDate
+          in: query
+          description: 開始日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: 結束日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 匯出成功
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    NextAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: NextAuth.js JWT token
+
+  schemas:
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerNumber:
+          type: string
+          example: CUST-2025-001
+        name:
+          type: string
+          example: 王小明
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        totalInvestmentAmount:
+          type: number
+          format: decimal
+          description: 總投資金額
+        investmentCount:
+          type: integer
+          description: 投資標的數量
+        createdAt:
+          type: string
+          format: date-time
+
+    InvestmentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        symbol:
+          type: string
+          example: 2330
+        symbolName:
+          type: string
+          example: 台積電
+        amount:
+          type: number
+          format: decimal
+          description: 投資金額
+        purchaseDate:
+          type: string
+          format: date
+        currentValue:
+          type: number
+          format: decimal
+          description: 目前價值
+        performance:
+          type: number
+          format: decimal
+          description: 績效百分比
+
+    InvestmentPortfolio:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        totalAmount:
+          type: number
+          format: decimal
+        lastUpdatedAt:
+          type: string
+          format: date-time
+        investments:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestmentRecord'
+
+    CustomerListResponse:
+      type: object
+      properties:
+        customers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    CustomerDetailResponse:
+      type: object
+      properties:
+        customer:
+          $ref: '#/components/schemas/Customer'
+        portfolio:
+          $ref: '#/components/schemas/InvestmentPortfolio'
+          nullable: true
+
+    RetirementCalculationRequest:
+      type: object
+      required:
+        - customerId
+        - retirementAge
+        - currentAge
+        - monthlyContribution
+        - expectedReturnRate
+        - currentSavings
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        retirementAge:
+          type: integer
+          minimum: 18
+          maximum: 100
+          example: 65
+        currentAge:
+          type: integer
+          minimum: 18
+          maximum: 100
+          example: 35
+        monthlyContribution:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 10000
+        expectedReturnRate:
+          type: number
+          format: decimal
+          minimum: 0
+          maximum: 50
+          example: 5.5
+          description: 預期年化報酬率（百分比）
+        currentSavings:
+          type: number
+          format: decimal
+          minimum: 0
+          example: 500000
+
+    RetirementCalculationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        retirementAge:
+          type: integer
+        currentAge:
+          type: integer
+        monthlyContribution:
+          type: number
+          format: decimal
+        expectedReturnRate:
+          type: number
+          format: decimal
+        currentSavings:
+          type: number
+          format: decimal
+        calculatedAmount:
+          type: number
+          format: decimal
+          description: 預估退休金金額
+        calculationDate:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+          description: 總筆數
+        totalPages:
+          type: integer
+          description: 總頁數
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+
+  responses:
+    BadRequest:
+      description: 請求參數錯誤
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: BadRequest
+            message: 參數驗證失敗
+            details:
+              retirementAge: 必須大於目前年齡
+
+    Unauthorized:
+      description: 未授權（未登入或 token 無效）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Unauthorized
+            message: 請先登入
+
+    NotFound:
+      description: 資源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: NotFound
+            message: 客戶不存在
+
+    InternalServerError:
+      description: 伺服器內部錯誤
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: InternalServerError
+            message: 伺服器發生錯誤，請稍後再試
+
